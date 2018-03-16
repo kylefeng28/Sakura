@@ -1,5 +1,5 @@
 # ------------------------------------------------------------------------------
-# Lexer
+# AST
 # ------------------------------------------------------------------------------
 
 class AST:
@@ -79,6 +79,10 @@ class Ident(AST):
     def __str__(self):
         return str(self.value)
 
+# ------------------------------------------------------------------------------
+# Lexer
+# ------------------------------------------------------------------------------
+
 # Tokens
 reserved = {
     'begin' : 'BEGIN',
@@ -92,8 +96,8 @@ reserved = {
 
 tokens = [
     'NUMBER', 'PLUS', 'MINUS', 'TIMES', 'DIVIDE',
-    'LPAREN', 'RPAREN',
-    'EQUALS',
+    'LPAREN', 'RPAREN', 'LBRACE', 'RBRACE',
+    'EQUALS', 'SEMI',
     'ID',
     'COMMENT'
 ] + list(reserved.values())
@@ -105,36 +109,39 @@ def MyLexer(**kwargs):
     t_DIVIDE = r'/'
     t_LPAREN = r'\('
     t_RPAREN = r'\)'
+    t_LBRACE = r'\{'
+    t_RBRACE = r'\}'
     t_EQUALS = r'='
+    t_SEMI   = r';'
 
     t_ignore_COMMENT= r'(//.*|\/\*(\*(?!\/)|[^*])*\*\/)'
 
-    def t_ID(t):
+    def t_ID(p):
         r'[a-zA-Z_][a-zA-Z0-9_]*'
-        t.type = reserved.get(t.value, 'ID')
+        p.type = reserved.get(p.value, 'ID')
         return t
 
-    def t_NUMBER(t):
+    def t_NUMBER(p):
         r'\d+'
         try:
-            t.value = int(t.value)
+            p.value = int(p.value)
         except ValueError:
-            print("Integer value too large %d", t.value)
-            t.value = 0
-        return t
+            print("Integer value too large %d", p.value)
+            p.value = 0
+        return p
 
     # Ignored characters
     t_ignore = " \t"
 
     # Keep track of line numbers
-    def t_newline(t):
+    def t_newline(p):
         r'\n+'
-        t.lexer.lineno += len(t.value)
+        p.lexer.lineno += len(p.value)
 
     # Error handling
-    def t_error(t):
-        print("Illegal character '%s'" % t.value[0])
-        t.lexer.skip(1)
+    def t_error(p):
+        print("Illegal character '%s'" % p.value[0])
+        p.lexer.skip(1)
 
     # Compute column
     #   input is the input text string
@@ -153,6 +160,7 @@ def MyLexer(**kwargs):
 # ------------------------------------------------------------------------------
 # Parser
 # ------------------------------------------------------------------------------
+
 def MyParser(**kwargs):
     # Parsing rules
     precedence = (
@@ -162,50 +170,79 @@ def MyParser(**kwargs):
         ('right', 'EQUALS'),
         )
 
-    def p_statement_declare(t):
-        'statement : LET ID EQUALS expression'
-        t[0] = LetOp(t[2], t[4])
-        print(t[0])
+    def p_statement(p):
+        '''statement : assignment_statement
+                     | declaration_statement
+                     | expression_statement
+                     | compound_statement
+                     | empty
+                     | statement SEMI
+        '''
+        p[0] = p[1]
 
-    def p_statement_assign(t):
-        'statement : ID EQUALS expression'
-        t[0] = SetOp(t[1], t[3])
-        print(t[0])
+    def p_declaration_statement(p):
+        'declaration_statement : LET ID EQUALS expression'
+        p[0] = LetOp(p[2], p[4])
 
-    def p_statement_expr(t):
-        'statement : expression'
-        print(t[1])
-        t[0] = t[1]
+    def p_assignment_statement(p):
+        'assignment_statement : ID EQUALS expression'
+        p[0] = SetOp(p[1], p[3])
 
-    def p_expression_binop(t):
+    def p_expression_statement(p):
+        '''expression_statement : expression
+                                '''
+        # TODO make SEMI required
+        p[0] = p[1]
+
+    def p_compound_statement(p):
+        """compound_statement : LBRACE RBRACE
+                              | LBRACE statement_list RBRACE
+        """
+        if len(p) == 4:
+            p[0] = AST(type='CompoundStmt', children=p[2])
+
+    def p_statement_list(p):
+        '''statement_list : statement
+                          | statement_list statement'''
+        # TODO?
+        if len(p) == 3:
+            p[0] = p[1] + [ p[2] ]
+        else:
+            p[0] = [ p[1] ]
+
+    def p_expression_binop(p):
         '''expression : expression PLUS expression
                       | expression MINUS expression
                       | expression TIMES expression
                       | expression DIVIDE expression'''
-        t[0] = BinOp(t[2], t[1], t[3])
+        p[0] = BinOp(p[2], p[1], p[3])
 
-    def p_expression_uplus(t):
+    def p_expression_uplus(p):
         'expression : PLUS expression %prec UPLUS'
-        t[0] = UnaryOp('+', t[2])
+        p[0] = UnaryOp('+', p[2])
 
-    def p_expression_uminus(t):
+    def p_expression_uminus(p):
         'expression : MINUS expression %prec UMINUS'
-        t[0] = UnaryOp('-', t[2])
+        p[0] = UnaryOp('-', p[2])
 
-    def p_expression_group(t):
+    def p_expression_group(p):
         'expression : LPAREN expression RPAREN'
-        t[0] = t[2]
+        p[0] = p[2]
 
-    def p_expression_number(t):
+    def p_expression_number(p):
         'expression : NUMBER'
-        t[0] = Number(t[1])
+        p[0] = Number(p[1])
 
-    def p_expression_id(t):
+    def p_expression_id(p):
         'expression : ID'
-        t[0] = Ident(t[1])
+        p[0] = Ident(p[1])
 
-    def p_error(t):
-        print("Syntax error at '%s'" % t.value)
+    def p_empty(p):
+        'empty : '
+        p[0] = AST(type='NoOp')
+
+    def p_error(p):
+        print("Syntax error at '%s'" % p.value)
 
     import ply.yacc as yacc
     parser = yacc.yacc(**kwargs)
@@ -218,7 +255,7 @@ class MyInterpreter():
     
     def interpret(self, ast):
         result = self.visit(ast)
-        print(result)
+        print(f"=> {result}")
         return result
 
     def visit(self, node):
@@ -228,6 +265,9 @@ class MyInterpreter():
 
     def visit_generic(self, node):
         print(f'Error: No visit_{node.type} method found')
+
+    def visit_NoOp(self, node):
+        pass
     
     def visit_BinOp(self, node):
         if node.value == '+':
@@ -254,7 +294,7 @@ class MyInterpreter():
             print(f"Error: Identifier `{lhs}` has not been declared")
             return None
         else:
-            self.names[lhs] = node.rhs
+            self.names[lhs] = self.visit(node.rhs)
             return node.rhs
 
     def visit_Number(self, node):
@@ -267,6 +307,12 @@ class MyInterpreter():
         else:
             print(f"ReferenceError: `{id}` is not defined")
 
+    def visit_CompoundStmt(self, node):
+        result = None
+        for child in node.children:
+            result = self.visit(child)
+        return result
+
 # lexer = MyLexer(debug=1)
 lexer = MyLexer()
 parser = MyParser()
@@ -276,6 +322,8 @@ def repl():
     while True:
         try:
             s = input('sakura> ')
+            # In interactive mode, surround inside a block
+            s = '{' + s + '}'
         except EOFError:
             break
         if not s: continue
