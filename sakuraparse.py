@@ -276,12 +276,12 @@ def SakuraParser(**kwargs):
 
     def p_iteration_statement_do_while(p):
         # TODO implement all of these
-        'iteration_statement : DO expression WHILE statement'
+        'iteration_statement : DO expression WHILE expression SEMI'
         p[0] = IterationStmt('do-while', p[2], p[4])
 
     def p_iteration_statement_repeat_until(p):
         # TODO implement all of these
-        'iteration_statement : REPEAT expression UNTIL statement'
+        'iteration_statement : REPEAT expression UNTIL expression SEMI'
         p[0] = IterationStmt('repeat-until', p[2], p[4])
 
     def p_iteration_statement_loop(p):
@@ -301,136 +301,3 @@ def SakuraParser(**kwargs):
 
     parser = yacc.yacc(**kwargs)
     return parser
-
-class SakuraInterpreter():
-    def __init__(self):
-        # dictionary of names
-        self.names = { }
-        self.functions = { 'print': print }
-
-    def interpret(self, ast):
-        result = self.visit(ast)
-        if isinstance(result, str):
-            print(f'=> "{result}"')
-        else:
-            print(f"=> {result}")
-        return result
-
-    def visit(self, node):
-        if node is not None:
-            method_name = 'visit_' + node.type()
-            visitor = getattr(self, method_name, self.visit_generic)
-            return visitor(node)
-
-    def visit_generic(self, node):
-        print(f'Error: No visit_{node.type()} method found')
-
-    def visit_NoOp(self, node):
-        pass
-
-    def visit_BinOp(self, node):
-        if node.value == '+':
-            return self.visit(node.left) + self.visit(node.right)
-        elif node.value == '-':
-            return self.visit(node.left) - self.visit(node.right)
-        elif node.value == '*':
-            return self.visit(node.left) * self.visit(node.right)
-        elif node.value == '/':
-            return self.visit(node.left) / self.visit(node.right)
-
-        elif node.value == '==':
-            return self.visit(node.left) == self.visit(node.right)
-        elif node.value == '<':
-            return self.visit(node.left) < self.visit(node.right)
-        elif node.value == '<=':
-            return self.visit(node.left) <= self.visit(node.right)
-        elif node.value == '>':
-            return self.visit(node.left) > self.visit(node.right)
-        elif node.value == '>=':
-            return self.visit(node.left) >= self.visit(node.right)
-
-    def visit_LetOp(self, node):
-        lhs = node.lhs
-        if lhs in self.names:
-            print(f"Error: Identifier `{lhs}` has already been declared")
-            return None
-        else:
-            self.names[lhs] = self.visit(node.rhs)
-            return node.rhs
-
-    def visit_SetOp(self, node):
-        lhs = node.lhs
-        if lhs not in self.names:
-            print(f"Error: Identifier `{lhs}` has not been declared")
-            return None
-        else:
-            self.names[lhs] = self.visit(node.rhs)
-            return node.rhs
-
-    def visit_Literal(self, node):
-        return node.value
-
-    def visit_Ident(self, node):
-        id = node.value
-        if id in self.names:
-            return self.names[id]
-        else:
-            print(f"ReferenceError: `{id}` is not defined")
-
-    # TODO don't use python functions
-    def visit_FunctionCall(self, node):
-        id = node.value
-        args = [ self.visit(child) for child in node.children ]
-        if id in self.functions:
-            return self.functions[id](*args)
-        else:
-            print(f"ReferenceError: `{id}` is not defined")
-
-    def visit_CompoundStmt(self, node):
-        result = None
-        for child in node.children:
-            result = self.visit(child)
-        return result
-
-    def visit_ConditionalStmt(self, node):
-        cond = self.visit(node.cond)
-        if node.value == 'unless': cond = not cond # flip
-        if cond:
-            return self.visit(node.consequent)
-        elif node.alternate is not None:
-            return self.visit(node.alternate)
-        else:
-            return None
-
-    def visit_IterationStmt(self, node):
-        if node.value == 'while':
-            cond = self.visit(node.cond)
-            while cond:
-                self.visit(node.body)
-                cond = self.visit(node.cond)
-        elif node.value == 'do-while':
-            self.visit(node.body)
-            cond = self.visit(node.cond)
-            while cond:
-                self.visit(node.body)
-                cond = self.visit(node.cond)
-        elif node.value == 'repeat-until':
-            self.visit(node.body)
-            cond = self.visit(node.cond)
-            while not cond:
-                self.visit(node.body)
-                cond = self.visit(node.cond)
-        elif node.value == 'loop':
-            n = self.visit(node.cond)
-            for i in range(n):
-                self.visit(node.body)
-        elif node.value == 'for':
-            n_init_stmt, n_cond, n_next, n_body = node.children[:4]
-
-            self.visit(n_init_stmt)
-            cond = self.visit(n_cond)
-            while cond:
-                self.visit(n_body)
-                self.visit(n_next)
-                cond = self.visit(n_cond)
-
