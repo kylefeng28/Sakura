@@ -102,9 +102,11 @@ class CompoundStmt(AST):
         return s
 
 class ConditionalStmt(AST):
-    def __init__(self, cond, consequent, alternate=None):
-        super().__init__(value='if', children=(cond, consequent, alternate))
+    def __init__(self, condtype, cond, consequent, alternate=None):
+        super().__init__(value=condtype, children=(cond, consequent, alternate))
 
+    @property
+    def condtype(self): return self.value
     @property
     def cond(self): return self.children[0]
     @property
@@ -113,9 +115,11 @@ class ConditionalStmt(AST):
     def alternate(self): return self.children[2]
 
 class IterationStmt(AST):
-    def __init__(self, cond, body):
-        super().__init__(value='while', children=(cond, body))
+    def __init__(self, ittype, cond, body):
+        super().__init__(value=ittype, children=(cond, body))
 
+    @property
+    def condtype(self): return self.value
     @property
     def cond(self): return self.children[0]
     @property
@@ -132,11 +136,14 @@ reserved = {
     'begin'  : 'BEGIN',
     'end'    : 'END',
     'if'     : 'IF',
+    'unless' : 'UNLESS',
     'else'   : 'ELSE',
     'while'  : 'WHILE',
+    'do'     : 'DO',
+    'until'  : 'UNTIL',
     'repeat' : 'REPEAT',
     'for'    : 'FOR',
-    'until'  : 'UNTIL',
+    'loop'   : 'LOOP',
     'let'    : 'LET'
 }
 
@@ -234,11 +241,11 @@ import ply.yacc as yacc
 def MyParser(**kwargs):
     # Parsing rules
     precedence = (
-        ('right', 'UPLUS','UMINUS'),
+        ('right', 'EQUALS'),
+        ('left', 'DEQUALS', 'LANG', 'LANGEQ', 'RANG', 'RANGEQ'),
         ('left', 'PLUS','MINUS'),
         ('left', 'TIMES','DIVIDE'),
-        ('left', 'DEQUALS', 'LANG', 'LANGEQ', 'RANG', 'RANGEQ'),
-        ('right', 'EQUALS'),
+        ('right', 'UPLUS','UMINUS'),
         )
 
     # def p_empty(p):
@@ -321,8 +328,17 @@ def MyParser(**kwargs):
         p[0] = LetOp(p[2], p[4])
 
     def p_assignment_statement(p):
-        'assignment_statement : ID EQUALS expression SEMI'
+        'assignment_statement : assignment_expression SEMI'
+        p[0] = p[1]
+
+    def p_assignment_expression(p):
+        'assignment_expression : ID EQUALS expression'
         p[0] = SetOp(p[1], p[3])
+
+    # TODO this is pretty hacky
+    def p_expression_assignment(p):
+        'expression : assignment_expression'
+        p[0] = p[1]
 
     def p_expression_statement(p):
         '''expression_statement : SEMI
@@ -352,18 +368,36 @@ def MyParser(**kwargs):
     def p_conditional_statement(p):
         '''conditional_statement : IF expression statement
                                  | IF expression statement ELSE statement
+                                 | UNLESS expression statement
+                                 | UNLESS expression statement ELSE statement
         '''
         if len(p) == 4:
-            p[0] = ConditionalStmt(p[2], p[3])
+            p[0] = ConditionalStmt(p[1], p[2], p[3])
         else:
-            p[0] = ConditionalStmt(p[2], p[3], p[5])
+            p[0] = ConditionalStmt(p[1], p[2], p[3], p[5])
 
-    # TODO until, repeat, for
-    def p_iteration_statement(p):
-        '''iteration_statement : WHILE expression statement
-        '''
+    def p_iteration_statement_while(p):
+        'iteration_statement : WHILE expression statement'
+        p[0] = IterationStmt('while', p[2], p[3])
 
-        p[0] = IterationStmt(p[2], p[3])
+    def p_iteration_statement_do_while(p):
+        # TODO implement all of these
+        'iteration_statement : DO expression WHILE statement'
+        p[0] = IterationStmt('do-while', p[2], p[4])
+
+    def p_iteration_statement_repeat_until(p):
+        # TODO implement all of these
+        'iteration_statement : REPEAT expression UNTIL statement'
+        p[0] = IterationStmt('repeat-until', p[2], p[4])
+
+    def p_iteration_statement_loop(p):
+        'iteration_statement : LOOP expression statement'
+        p[0] = IterationStmt('loop', p[2], p[3])
+
+    def p_iteration_statement_for(p):
+        'iteration_statement : FOR LPAREN expression_statement expression_statement expression RPAREN statement'
+        # TODO implement all of these
+        p[0] = AST('IterationStmt', 'for', (p[3], p[4], p[5], p[7]))
 
     def p_error(p):
         if p:
@@ -466,6 +500,7 @@ class MyInterpreter():
 
     def visit_ConditionalStmt(self, node):
         cond = self.visit(node.cond)
+        if node.value == 'unless': cond = not cond # flip
         if cond:
             return self.visit(node.consequent)
         elif node.alternate is not None:
@@ -474,10 +509,36 @@ class MyInterpreter():
             return None
 
     def visit_IterationStmt(self, node):
-        cond = self.visit(node.cond)
-        while cond:
+        if node.value == 'while':
+            cond = self.visit(node.cond)
+            while cond:
+                self.visit(node.body)
+                cond = self.visit(node.cond)
+        elif node.value == 'do-while':
             self.visit(node.body)
             cond = self.visit(node.cond)
+            while cond:
+                self.visit(node.body)
+                cond = self.visit(node.cond)
+        elif node.value == 'repeat-until':
+            self.visit(node.body)
+            cond = self.visit(node.cond)
+            while not cond:
+                self.visit(node.body)
+                cond = self.visit(node.cond)
+        elif node.value == 'loop':
+            n = self.visit(node.cond)
+            for i in range(n):
+                self.visit(node.body)
+        elif node.value == 'for':
+            n_init_stmt, n_cond, n_next, n_body = node.children[:4]
+
+            self.visit(n_init_stmt)
+            cond = self.visit(n_cond)
+            while cond:
+                self.visit(n_body)
+                self.visit(n_next)
+                cond = self.visit(n_cond)
 
 # ------------------------------------------------------------------------------
 # Main
