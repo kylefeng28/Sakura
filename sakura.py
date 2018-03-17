@@ -144,7 +144,8 @@ reserved = {
     'repeat' : 'REPEAT',
     'for'    : 'FOR',
     'loop'   : 'LOOP',
-    'let'    : 'LET'
+    'let'    : 'LET',
+    'yield'  : 'yield'
 }
 
 tokens = [
@@ -199,11 +200,14 @@ def MyLexer(**kwargs):
             t.value = 0
         return t
 
-    STRING_SQ = r'"(.|[^\"])*"'
-    STRING_DQ = r"'(.|[^\'])*'"
-    STRING = f"({STRING_SQ}|{STRING_DQ})"
-    @TOKEN(STRING)
+    # this is pretty broken
+    # STRING_SQ = r'"(.|[^\"])*"'
+    # STRING_DQ = r"'(.|[^\'])*'"
+    # STRING = f"({STRING_SQ}|{STRING_DQ})"
+    # @TOKEN(STRING)
+    # Taken from https://github.com/dabeaz/ply/blob/master/example/GardenSnake/GardenSnake.py
     def t_STRING(t):
+        r"'([^\\']+|\\'|\\\\)*'"
         t.value = eval(t.value)
         return t
 
@@ -560,6 +564,11 @@ def parse(s):
     # for tok in lexer:
     #     print(tok)
 
+def tokenize(s):
+    lexer.input(s)
+    for tok in lexer:
+        print(tok)
+
 def repl():
     while True:
         try:
@@ -577,6 +586,8 @@ if __name__ == '__main__':
         s = ''
         with open(sys.argv[1], 'r') as f:
             s = f.read()
+            print(s)
+        # tokenize(s)
         parse(s)
 
     else:
