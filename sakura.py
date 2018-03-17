@@ -196,7 +196,7 @@ def MyLexer(**kwargs):
 
     STRING_SQ = r'"(.|[^\"])*"'
     STRING_DQ = r"'(.|[^\'])*'"
-    STRING = f"{STRING_SQ}|{STRING_DQ}"
+    STRING = f"({STRING_SQ}|{STRING_DQ})"
     @TOKEN(STRING)
     def t_STRING(t):
         t.value = eval(t.value)
@@ -236,9 +236,10 @@ import ply.yacc as yacc
 def MyParser(**kwargs):
     # Parsing rules
     precedence = (
+        ('right', 'UPLUS','UMINUS'),
         ('left', 'PLUS','MINUS'),
         ('left', 'TIMES','DIVIDE'),
-        ('right', 'UPLUS','UMINUS'),
+        ('left', 'DEQUALS', 'LANG', 'LANGEQ', 'RANG', 'RANGEQ'),
         ('right', 'EQUALS'),
         )
 
@@ -255,11 +256,20 @@ def MyParser(**kwargs):
                      | iteration_statement'''
         p[0] = p[1]
 
-    def p_expression_binop(p):
+    # expression_binop
+    def p_expression_arithmetic(p):
         '''expression : expression PLUS expression
                       | expression MINUS expression
                       | expression TIMES expression
                       | expression DIVIDE expression'''
+        p[0] = BinOp(p[2], p[1], p[3])
+
+    def p_expression_comparison(p):
+        '''expression : expression DEQUALS expression
+                      | expression LANG expression
+                      | expression LANGEQ expression
+                      | expression RANG expression
+                      | expression RANGEQ expression'''
         p[0] = BinOp(p[2], p[1], p[3])
 
     def p_expression_uplus(p):
@@ -355,7 +365,7 @@ def MyParser(**kwargs):
         '''iteration_statement : WHILE expression statement
         '''
 
-        p[0] = IterationStmt(p[1], [2])
+        p[0] = IterationStmt(p[2], p[3])
 
     def p_error(p):
         if p:
@@ -401,6 +411,17 @@ class MyInterpreter():
             return self.visit(node.left) * self.visit(node.right)
         elif node.value == '/':
             return self.visit(node.left) / self.visit(node.right)
+
+        elif node.value == '==':
+            return self.visit(node.left) == self.visit(node.right)
+        elif node.value == '<':
+            return self.visit(node.left) < self.visit(node.right)
+        elif node.value == '<=':
+            return self.visit(node.left) <= self.visit(node.right)
+        elif node.value == '>':
+            return self.visit(node.left) > self.visit(node.right)
+        elif node.value == '>=':
+            return self.visit(node.left) >= self.visit(node.right)
 
     def visit_LetOp(self, node):
         lhs = node.lhs
@@ -454,6 +475,12 @@ class MyInterpreter():
         else:
             return None
 
+    def visit_IterationStmt(self, node):
+        cond = self.visit(node.cond)
+        while cond:
+            self.visit(node.body)
+            cond = self.visit(node.cond)
+
 # ------------------------------------------------------------------------------
 # Main
 # ------------------------------------------------------------------------------
@@ -467,7 +494,7 @@ interpreter = MyInterpreter()
 def parse(s):
     ast = parser.parse(s)
     print('ast: ' + str(ast)) # debug
-    print('ast: ' + repr(ast)) # debug
+    # print('ast: ' + repr(ast)) # debug
     if ast: interpreter.interpret(ast)
 
     # lexer.input(s)
