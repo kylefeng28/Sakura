@@ -147,22 +147,31 @@ tokens = [
     'PLUS', 'MINUS', 'TIMES', 'DIVIDE',
     'LPAREN', 'RPAREN', 'LBRACE', 'RBRACE',
     'EQUALS', 'SEMI', 'COMMA',
+    'DEQUALS', 'LANG', 'LANGEQ', 'RANG', 'RANGEQ',
+
     'ID',
-    'COMMENT'
+    'COMMENT',
 ] + list(reserved.values())
 
 def MyLexer(**kwargs):
-    t_PLUS   = r'\+'
-    t_MINUS  = r'-'
-    t_TIMES  = r'\*'
-    t_DIVIDE = r'/'
-    t_LPAREN = r'\('
-    t_RPAREN = r'\)'
-    t_LBRACE = r'\{'
-    t_RBRACE = r'\}'
-    t_EQUALS = r'='
-    t_SEMI   = r';'
-    t_COMMA   = r','
+    t_PLUS     = r'\+'
+    t_MINUS    = r'-'
+    t_TIMES    = r'\*'
+    t_DIVIDE   = r'/'
+    t_LPAREN   = r'\('
+    t_RPAREN   = r'\)'
+    t_LBRACE   = r'\{'
+    t_RBRACE   = r'\}'
+    t_EQUALS   = r'='
+    t_SEMI     = r';'
+    t_COMMA    = r','
+
+    t_DEQUALS  = r'=='
+    t_LANG     = r'<'
+    t_LANGEQ   = r'<='
+    t_RANG     = r'>'
+    t_RANGEQ   = r'>='
+
 
     t_ignore_COMMENT= r'(//.*|\/\*(\*(?!\/)|[^*])*\*\/)'
 
@@ -184,7 +193,7 @@ def MyLexer(**kwargs):
             print("Integer value too large %d", t.value)
             t.value = 0
         return t
-    
+
     STRING_SQ = r'"(.|[^\"])*"'
     STRING_DQ = r"'(.|[^\'])*'"
     STRING = f"{STRING_SQ}|{STRING_DQ}"
@@ -445,10 +454,25 @@ class MyInterpreter():
         else:
             return None
 
+# ------------------------------------------------------------------------------
+# Main
+# ------------------------------------------------------------------------------
+import sys
+
 # lexer = MyLexer(debug=1)
 lexer = MyLexer()
 parser = MyParser()
 interpreter = MyInterpreter()
+
+def parse(s):
+    ast = parser.parse(s)
+    print('ast: ' + str(ast)) # debug
+    print('ast: ' + repr(ast)) # debug
+    if ast: interpreter.interpret(ast)
+
+    # lexer.input(s)
+    # for tok in lexer:
+    #     print(tok)
 
 def repl():
     while True:
@@ -459,14 +483,15 @@ def repl():
         except EOFError:
             break
         if not s: continue
-        ast = parser.parse(s)
-        print('ast: ' + str(ast)) # debug
-        print('ast: ' + repr(ast)) # debug
-        if ast: interpreter.interpret(ast)
-
-        # lexer.input(s)
-        # for tok in lexer:
-        #     print(tok)
+        parse(s)
 
 if __name__ == '__main__':
-    repl()
+    if len(sys.argv) > 1:
+        # Open file and compile
+        s = ''
+        with open(sys.argv[1], 'r') as f:
+            s = f.read()
+        parse(s)
+
+    else:
+        repl()
