@@ -3,13 +3,16 @@
 # ------------------------------------------------------------------------------
 
 class AST:
-    def __init__(self, type, value=None, children=None):
-         self.type = type
-         if children:
-              self.children = children
-         else:
-              self.children = [ ]
-         self.value = value
+    def __init__(self, type=None, value=None, children=None):
+        self._type = type
+        if children:
+             self.children = children
+        else:
+             self.children = [ ]
+        self.value = value
+
+    def type(self):
+        return self._type or type(self).__name__
 
     # Return s-expr
     def __str__(self):
@@ -20,7 +23,7 @@ class AST:
         return s
 
     def __repr__(self):
-        s = f"({self.type}"
+        s = f"({self.type()}"
         if self.value: s += f":{self.value}"
         for child in self.children:
             s += ' ' + repr(child)
@@ -29,16 +32,14 @@ class AST:
 
 class UnaryOp(AST):
     def __init__(self, op, operand):
-        super().__init__('UnaryOp',
-                value=op, children=[operand])
+        super().__init__(value=op, children=[operand])
 
     @property
     def operand(self): return self.children[0]
 
 class BinOp(AST):
     def __init__(self, op, left, right):
-        super().__init__('BinOp',
-                value=op, children=(left, right))
+        super().__init__(value=op, children=(left, right))
 
     @property
     def left(self): return self.children[0]
@@ -47,8 +48,7 @@ class BinOp(AST):
 
 class LetOp(AST):
     def __init__(self, lhs, rhs):
-        super().__init__('LetOp',
-                value='let', children=(lhs, rhs))
+        super().__init__(value='let', children=(lhs, rhs))
 
     @property
     def lhs(self): return self.children[0]
@@ -57,8 +57,7 @@ class LetOp(AST):
 
 class SetOp(AST):
     def __init__(self, lhs, rhs):
-        super().__init__('SetOp',
-                value='set', children=(lhs, rhs))
+        super().__init__(value='set', children=(lhs, rhs))
 
     @property
     def lhs(self): return self.children[0]
@@ -67,12 +66,11 @@ class SetOp(AST):
 
 class FunctionCall(AST):
     def __init__(self, fnname, fnargs=None):
-        super().__init__('FunctionCall',
-                value=fnname, children=fnargs)
+        super().__init__(value=fnname, children=fnargs)
 
 class Literal(AST):
     def __init__(self, value):
-        super().__init__('Literal', value=value)
+        super().__init__(type='Literal', value=value)
 
     def __str__(self):
         return str(self.value)
@@ -87,14 +85,14 @@ class String(Literal):
 
 class Ident(AST):
     def __init__(self, value):
-        super().__init__('Ident', value=value)
+        super().__init__(value=value)
 
     def __str__(self):
         return str(self.value)
 
 class CompoundStmt(AST):
     def __init__(self, children=None):
-        super().__init__('CompoundStmt', value='compound', children=children)
+        super().__init__(value='compound', children=children)
 
     def __str__(self):
         s = '{'
@@ -105,7 +103,7 @@ class CompoundStmt(AST):
 
 class ConditionalStmt(AST):
     def __init__(self, cond, consequent, alternate=None):
-        super().__init__('ConditionalStmt', value='if', children=(cond, consequent, alternate))
+        super().__init__(value='if', children=(cond, consequent, alternate))
 
     @property
     def cond(self): return self.children[0]
@@ -116,7 +114,7 @@ class ConditionalStmt(AST):
 
 class IterationStmt(AST):
     def __init__(self, cond, body):
-        super().__init__('IterationStmt', value='while', children=(cond, body))
+        super().__init__(value='while', children=(cond, body))
 
     @property
     def cond(self): return self.children[0]
@@ -392,12 +390,12 @@ class MyInterpreter():
 
     def visit(self, node):
         if node is not None:
-            method_name = 'visit_' + node.type
+            method_name = 'visit_' + node.type()
             visitor = getattr(self, method_name, self.visit_generic)
             return visitor(node)
 
     def visit_generic(self, node):
-        print(f'Error: No visit_{node.type} method found')
+        print(f'Error: No visit_{node.type()} method found')
 
     def visit_NoOp(self, node):
         pass
