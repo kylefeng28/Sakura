@@ -10,7 +10,7 @@ class AST:
          else:
               self.children = [ ]
          self.value = value
-    
+
     # Return s-expr
     def __str__(self):
         s = f"({self.value}"
@@ -18,12 +18,12 @@ class AST:
             s += ' ' + str(child)
         s += ')'
         return s
-    
+
     def __repr__(self):
         s = f"({self.type}"
         if self.value: s += f":{self.value}"
         for child in self.children:
-            s += ' ' + str(child)
+            s += ' ' + repr(child)
         s += ')'
         return s
 
@@ -65,12 +65,25 @@ class SetOp(AST):
     @property
     def rhs(self): return self.children[1]
 
-class Number(AST):
+class FunctionCall(AST):
+    def __init__(self, fnname, fnargs=None):
+        super().__init__('FunctionCall',
+                value=fnname, children=fnargs)
+
+class Literal(AST):
     def __init__(self, value):
-        super().__init__('Number', value=value)
+        super().__init__('Literal', value=value)
 
     def __str__(self):
         return str(self.value)
+
+class Bool(Literal):
+    pass
+class Number(Literal):
+    pass
+class String(Literal):
+    def __str__(self):
+        return '"' + self.value + '"'
 
 class Ident(AST):
     def __init__(self, value):
@@ -79,25 +92,61 @@ class Ident(AST):
     def __str__(self):
         return str(self.value)
 
+class CompoundStmt(AST):
+    def __init__(self, children=None):
+        super().__init__('CompoundStmt', value='compound', children=children)
+
+    def __str__(self):
+        s = '{'
+        for child in self.children:
+            s += ' ' + str(child)
+        s += ' }'
+        return s
+
+class ConditionalStmt(AST):
+    def __init__(self, cond, consequent, alternate=None):
+        super().__init__('ConditionalStmt', value='if', children=(cond, consequent, alternate))
+
+    @property
+    def cond(self): return self.children[0]
+    @property
+    def consequent(self): return self.children[1]
+    @property
+    def alternate(self): return self.children[2]
+
+class IterationStmt(AST):
+    def __init__(self, cond, body):
+        super().__init__('IterationStmt', value='while', children=(cond, body))
+
+    @property
+    def cond(self): return self.children[0]
+    @property
+    def body(self): return self.children[1]
+
 # ------------------------------------------------------------------------------
 # Lexer
 # ------------------------------------------------------------------------------
+import ply.lex as lex
+from ply.lex import TOKEN
 
 # Tokens
 reserved = {
-    'begin' : 'BEGIN',
-    'end'   : 'END',
-    'if'    : 'IF',
-    'then'  : 'THEN',
-    'else'  : 'ELSE',
-    'while' : 'WHILE',
-    'let'   : 'LET',
+    'begin'  : 'BEGIN',
+    'end'    : 'END',
+    'if'     : 'IF',
+    'else'   : 'ELSE',
+    'while'  : 'WHILE',
+    'repeat' : 'REPEAT',
+    'for'    : 'FOR',
+    'until'  : 'UNTIL',
+    'let'    : 'LET'
 }
 
 tokens = [
-    'NUMBER', 'PLUS', 'MINUS', 'TIMES', 'DIVIDE',
+    'BOOL', 'NUMBER', 'STRING',
+    'PLUS', 'MINUS', 'TIMES', 'DIVIDE',
     'LPAREN', 'RPAREN', 'LBRACE', 'RBRACE',
-    'EQUALS', 'SEMI',
+    'EQUALS', 'SEMI', 'COMMA',
     'ID',
     'COMMENT'
 ] + list(reserved.values())
@@ -113,35 +162,49 @@ def MyLexer(**kwargs):
     t_RBRACE = r'\}'
     t_EQUALS = r'='
     t_SEMI   = r';'
+    t_COMMA   = r','
 
     t_ignore_COMMENT= r'(//.*|\/\*(\*(?!\/)|[^*])*\*\/)'
 
-    def t_ID(p):
-        r'[a-zA-Z_][a-zA-Z0-9_]*'
-        p.type = reserved.get(p.value, 'ID')
+    def t_BOOL(t):
+        r'(true|false)'
+        t.value = t.value == 'true'
         return t
 
-    def t_NUMBER(p):
+    def t_ID(t):
+        r'[a-zA-Z_][a-zA-Z0-9_]*'
+        t.type = reserved.get(t.value, 'ID')
+        return t
+
+    def t_NUMBER(t):
         r'\d+'
         try:
-            p.value = int(p.value)
+            t.value = int(t.value)
         except ValueError:
-            print("Integer value too large %d", p.value)
-            p.value = 0
-        return p
+            print("Integer value too large %d", t.value)
+            t.value = 0
+        return t
+    
+    STRING_SQ = r'"(.|[^\"])*"'
+    STRING_DQ = r"'(.|[^\'])*'"
+    STRING = f"{STRING_SQ}|{STRING_DQ}"
+    @TOKEN(STRING)
+    def t_STRING(t):
+        t.value = eval(t.value)
+        return t
 
     # Ignored characters
     t_ignore = " \t"
 
     # Keep track of line numbers
-    def t_newline(p):
+    def t_newline(t):
         r'\n+'
-        p.lexer.lineno += len(p.value)
+        t.lexer.lineno += len(t.value)
 
     # Error handling
-    def t_error(p):
-        print("Illegal character '%s'" % p.value[0])
-        p.lexer.skip(1)
+    def t_error(t):
+        print("Illegal character '%s'" % t.value[0])
+        t.lexer.skip(1)
 
     # Compute column
     #   input is the input text string
@@ -153,13 +216,13 @@ def MyLexer(**kwargs):
     # EOF handling?
 
     # Build the lexer
-    import ply.lex as lex
     lexer = lex.lex(**kwargs)
     return lexer
 
 # ------------------------------------------------------------------------------
 # Parser
 # ------------------------------------------------------------------------------
+import ply.yacc as yacc
 
 def MyParser(**kwargs):
     # Parsing rules
@@ -170,45 +233,18 @@ def MyParser(**kwargs):
         ('right', 'EQUALS'),
         )
 
+    # def p_empty(p):
+    #     'empty : '
+    #     p[0] = AST(type='NoOp')
+
     def p_statement(p):
-        '''statement : assignment_statement
+        '''statement : expression_statement
+                     | assignment_statement
                      | declaration_statement
-                     | expression_statement
                      | compound_statement
-                     | empty
-                     | statement SEMI
-        '''
+                     | conditional_statement
+                     | iteration_statement'''
         p[0] = p[1]
-
-    def p_declaration_statement(p):
-        'declaration_statement : LET ID EQUALS expression'
-        p[0] = LetOp(p[2], p[4])
-
-    def p_assignment_statement(p):
-        'assignment_statement : ID EQUALS expression'
-        p[0] = SetOp(p[1], p[3])
-
-    def p_expression_statement(p):
-        '''expression_statement : expression
-                                '''
-        # TODO make SEMI required
-        p[0] = p[1]
-
-    def p_compound_statement(p):
-        """compound_statement : LBRACE RBRACE
-                              | LBRACE statement_list RBRACE
-        """
-        if len(p) == 4:
-            p[0] = AST(type='CompoundStmt', children=p[2])
-
-    def p_statement_list(p):
-        '''statement_list : statement
-                          | statement_list statement'''
-        # TODO?
-        if len(p) == 3:
-            p[0] = p[1] + [ p[2] ]
-        else:
-            p[0] = [ p[1] ]
 
     def p_expression_binop(p):
         '''expression : expression PLUS expression
@@ -229,22 +265,95 @@ def MyParser(**kwargs):
         'expression : LPAREN expression RPAREN'
         p[0] = p[2]
 
+    def p_expression_bool(p):
+        'expression : BOOL'
+        p[0] = Bool(p[1])
+
     def p_expression_number(p):
         'expression : NUMBER'
         p[0] = Number(p[1])
+
+    def p_expression_string(p):
+        'expression : STRING'
+        p[0] = String(p[1])
 
     def p_expression_id(p):
         'expression : ID'
         p[0] = Ident(p[1])
 
-    def p_empty(p):
-        'empty : '
-        p[0] = AST(type='NoOp')
+    def p_argument_expression_list(p):
+        '''argument_expression_list : expression
+                                    | argument_expression_list COMMA expression
+        '''
+        if len(p) == 2:
+            p[0] = [ p[1] ]
+        else: # 3
+            p[0] = p[1] + [ p[3] ] # prepend
+
+    def p_expression_function_call(p):
+        '''expression : ID LPAREN RPAREN
+                      | ID LPAREN argument_expression_list RPAREN
+        '''
+        if len(p) == 4:
+            p[0] = FunctionCall(p[1])
+        else:
+            p[0] = FunctionCall(p[1], p[3])
+
+    def p_declaration_statement(p):
+        'declaration_statement : LET ID EQUALS expression SEMI'
+        p[0] = LetOp(p[2], p[4])
+
+    def p_assignment_statement(p):
+        'assignment_statement : ID EQUALS expression SEMI'
+        p[0] = SetOp(p[1], p[3])
+
+    def p_expression_statement(p):
+        '''expression_statement : SEMI
+                                | expression SEMI
+                                '''
+        if len(p) == 3:
+            p[0] = p[1]
+
+    def p_compound_statement(p):
+        """compound_statement : LBRACE RBRACE
+                              | LBRACE statement_list RBRACE
+        """
+        if len(p) == 4:
+            p[0] = CompoundStmt(p[2])
+        else:
+            p[0] = CompoundStmt()
+
+    def p_statement_list(p):
+        '''statement_list : statement
+                          | statement_list statement'''
+        if len(p) == 2:
+            p[0] = [ p[1] ]
+        else: # 3
+            p[0] = p[1] + [ p[2] ] # prepend
+
+    # TODO unless
+    def p_conditional_statement(p):
+        '''conditional_statement : IF expression statement
+                                 | IF expression statement ELSE statement
+        '''
+        if len(p) == 4:
+            p[0] = ConditionalStmt(p[2], p[3])
+        else:
+            p[0] = ConditionalStmt(p[2], p[3], p[5])
+
+    # TODO until, repeat, for
+    def p_iteration_statement(p):
+        '''iteration_statement : WHILE expression statement
+        '''
+
+        p[0] = IterationStmt(p[1], [2])
 
     def p_error(p):
-        print("Syntax error at '%s'" % p.value)
+        if p:
+            print("Syntax error at '%s'" % p.value)
+        else:
+            print("Syntax error")
 
-    import ply.yacc as yacc
     parser = yacc.yacc(**kwargs)
     return parser
 
@@ -252,23 +361,28 @@ class MyInterpreter():
     def __init__(self):
         # dictionary of names
         self.names = { }
-    
+        self.functions = { 'print': print }
+
     def interpret(self, ast):
         result = self.visit(ast)
-        print(f"=> {result}")
+        if isinstance(result, str):
+            print(f'=> "{result}"')
+        else:
+            print(f"=> {result}")
         return result
 
     def visit(self, node):
-        method_name = 'visit_' + node.type
-        visitor = getattr(self, method_name, self.visit_generic)
-        return visitor(node)
+        if node is not None:
+            method_name = 'visit_' + node.type
+            visitor = getattr(self, method_name, self.visit_generic)
+            return visitor(node)
 
     def visit_generic(self, node):
         print(f'Error: No visit_{node.type} method found')
 
     def visit_NoOp(self, node):
         pass
-    
+
     def visit_BinOp(self, node):
         if node.value == '+':
             return self.visit(node.left) + self.visit(node.right)
@@ -285,7 +399,7 @@ class MyInterpreter():
             print(f"Error: Identifier `{lhs}` has already been declared")
             return None
         else:
-            self.names[lhs] = node.rhs
+            self.names[lhs] = self.visit(node.rhs)
             return node.rhs
 
     def visit_SetOp(self, node):
@@ -297,7 +411,7 @@ class MyInterpreter():
             self.names[lhs] = self.visit(node.rhs)
             return node.rhs
 
-    def visit_Number(self, node):
+    def visit_Literal(self, node):
         return node.value
 
     def visit_Ident(self, node):
@@ -307,11 +421,29 @@ class MyInterpreter():
         else:
             print(f"ReferenceError: `{id}` is not defined")
 
+    # TODO don't use python functions
+    def visit_FunctionCall(self, node):
+        id = node.value
+        args = [ self.visit(child) for child in node.children ]
+        if id in self.functions:
+            return self.functions[id](*args)
+        else:
+            print(f"ReferenceError: `{id}` is not defined")
+
     def visit_CompoundStmt(self, node):
         result = None
         for child in node.children:
             result = self.visit(child)
         return result
+
+    def visit_ConditionalStmt(self, node):
+        cond = self.visit(node.cond)
+        if cond:
+            return self.visit(node.consequent)
+        elif node.alternate is not None:
+            return self.visit(node.alternate)
+        else:
+            return None
 
 # lexer = MyLexer(debug=1)
 lexer = MyLexer()
@@ -323,11 +455,13 @@ def repl():
         try:
             s = input('sakura> ')
             # In interactive mode, surround inside a block
-            s = '{' + s + '}'
+            s = '{' + s + ';}'
         except EOFError:
             break
         if not s: continue
         ast = parser.parse(s)
+        print('ast: ' + str(ast)) # debug
+        print('ast: ' + repr(ast)) # debug
         if ast: interpreter.interpret(ast)
 
         # lexer.input(s)
