@@ -23,10 +23,10 @@ reserved = {
 }
 
 tokens = [
-    'BOOL', 'NUMBER', 'STRING',
+    'BOOL', 'FLOAT', 'INT', 'STRING',
     'PLUS', 'MINUS', 'TIMES', 'DIVIDE',
     'LPAREN', 'RPAREN', 'LBRACE', 'RBRACE',
-    'EQUALS', 'SEMI', 'COMMA',
+    'EQUALS', 'SEMI', 'COMMA', 'DOT',
     'DEQUALS', 'LANG', 'LANGEQ', 'RANG', 'RANGEQ',
 
     'ID',
@@ -45,6 +45,7 @@ def SakuraLexer(**kwargs):
     t_EQUALS   = r'='
     t_SEMI     = r';'
     t_COMMA    = r','
+    t_DOT    = r'\.'
 
     t_DEQUALS  = r'=='
     t_LANG     = r'<'
@@ -65,8 +66,18 @@ def SakuraLexer(**kwargs):
         t.type = reserved.get(t.value, 'ID')
         return t
 
-    def t_NUMBER(t):
-        r'\d+'
+    def t_FLOAT(t):
+        r'[+-]?(\d*\.\d+|\d+\.)'
+        try:
+            t.value = float(t.value)
+            print(t.value)
+        except ValueError:
+            print("Floating-point value too large %d", t.value)
+            t.value = 0
+        return t
+
+    def t_INT(t):
+        r'[+-]?\d+'
         try:
             t.value = int(t.value)
         except ValueError:

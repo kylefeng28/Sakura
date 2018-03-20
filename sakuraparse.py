@@ -188,7 +188,8 @@ def SakuraParser(**kwargs):
         p[0] = Bool(p[1])
 
     def p_expression_number(p):
-        'expression : NUMBER'
+        '''expression : FLOAT
+                      | INT'''
         p[0] = Number(p[1])
 
     def p_expression_string(p):
